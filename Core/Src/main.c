@@ -42,8 +42,9 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-uint32_t volatile mymillis = 0;
+uint16_t volatile ledMillis = 0; // used to check millis intervals for internal led blinking
 
+int enableBlink = 1; // should the LEDs blink
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -54,26 +55,19 @@ void SystemClock_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-void my_delay_ms(uint32_t ms)
-{
-  // read from TIM2 counter and increment a variable
-  // clear the status register and repeat until the millis_val
 
-  int counter = 0;
-  while (counter < ms)
-  {
-    if ((TIM2->SR >> 0) & 1) // check if 1ms has passed
-    {
-      counter++;
-      TIM2->SR &= ~(1 << 0); // reset the update interrupt flag
-    }
-  }
+void TIM2_IRQHandler(void) // interrupt called when a millisecond passes
+{
+  ledMillis++; // increases millisecond count for internal led blink interval
+  TIM2->SR &= ~(1 << 0);
 }
 
-void TIM2_IRQHandler(void)
+void EXTI4_15_IRQHandler(void)
 {
-  mymillis++;
-  TIM2->SR &= ~(1 << 0);
+	enableBlink = !enableBlink;
+
+  // Reset the pending register
+  EXTI->RPR1 = 1 << 13;
 }
 
 /* USER CODE END 0 */
@@ -126,17 +120,24 @@ int main(void)
 
   // TIM2 setup
   RCC->APBENR1 |= (1 << 0); // enable the clock for the timer
-  //RCC->APBENR1 |= (1 << 30);
+  // RCC->APBENR1 |= (1 << 30);
   TIM2->CR1 &= ~(1 << 4); // set TIM2 as count up
-  TIM2->PSC = 15;
+  TIM2->PSC = 15;         // set the prescaler value
   TIM2->ARR = 999;
-  TIM2->DIER |= (1<<0);
-  TIM2->CR1 |= (1 << 0); // enable the timer
+  TIM2->DIER |= (1 << 0); // enable the TIM2 to create an interrupt event
+  TIM2->CR1 |= (1 << 0);  // enable the timer
 
-  // interrupt setup
+  // TIM2 clock interrupt setup
   NVIC_SetPriority(TIM2_IRQn, 1);
   NVIC_EnableIRQ(TIM2_IRQn);
-  TIM2->SR &= ~(1<<0);
+  TIM2->SR &= ~(1 << 0);
+
+  // External Periphal (button) interrupt setup
+  EXTI->RTSR1 |= (1 << 13);
+  EXTI->EXTICR[3] |= (0x2 << 8); // Set PC-13 as GPIO pin for interrupt
+  EXTI->IMR1 |= (1 << 13);
+  NVIC_SetPriority(EXTI4_15_IRQn, 0);
+  NVIC_EnableIRQ(EXTI4_15_IRQn);
 
   /* USER CODE END 2 */
 
@@ -149,20 +150,11 @@ int main(void)
       - how to check if a bit is 0 in a register (without using '!')
     */
 
-//    if (!(GPIOC->IDR >> 13) & 1) // ! shouldnt be needed - checks if button is pushed
-//    {
-//      GPIOA->ODR ^= (1 << 5); // turn on the led
-//      my_delay_ms(500);
-//    }
-//    else
-//    {
-//      GPIOA->ODR &= ~(1 << 5); // turn off LED if button not pushed
-//    }
-
-	  if (mymillis >= 500){
-		  GPIOA->ODR ^= (1 << 5); // turn on the led
-		  mymillis = 0;
-	  }
+    if (ledMillis >= 500 && (enableBlink == 1))
+    {
+      GPIOA->ODR ^= (1 << 5); // toggle the led
+      ledMillis = 0;
+    }
 
     /* USER CODE END WHILE */
     /* USER CODE BEGIN 3 */
