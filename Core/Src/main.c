@@ -42,6 +42,7 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
+uint32_t volatile mymillis = 0;
 
 /* USER CODE END PV */
 
@@ -67,6 +68,12 @@ void my_delay_ms(uint32_t ms)
       TIM2->SR &= ~(1 << 0); // reset the update interrupt flag
     }
   }
+}
+
+void TIM2_IRQHandler(void)
+{
+  mymillis++;
+  TIM2->SR &= ~(1 << 0);
 }
 
 /* USER CODE END 0 */
@@ -119,11 +126,18 @@ int main(void)
 
   // TIM2 setup
   RCC->APBENR1 |= (1 << 0); // enable the clock for the timer
-  RCC->APBENR1 |= (1 << 30);
+  //RCC->APBENR1 |= (1 << 30);
   TIM2->CR1 &= ~(1 << 4); // set TIM2 as count up
   TIM2->PSC = 15;
   TIM2->ARR = 999;
+  TIM2->DIER |= (1<<0);
   TIM2->CR1 |= (1 << 0); // enable the timer
+
+  // interrupt setup
+  NVIC_SetPriority(TIM2_IRQn, 1);
+  NVIC_EnableIRQ(TIM2_IRQn);
+  TIM2->SR &= ~(1<<0);
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -135,15 +149,20 @@ int main(void)
       - how to check if a bit is 0 in a register (without using '!')
     */
 
-    if (!(GPIOC->IDR >> 13) & 1) // ! shouldnt be needed - checks if button is pushed
-    {
-      GPIOA->ODR ^= (1 << 5); // turn on the led
-      my_delay_ms(500);
-    }
-    else
-    {
-      GPIOA->ODR &= ~(1 << 5); // turn off LED if button not pushed
-    }
+//    if (!(GPIOC->IDR >> 13) & 1) // ! shouldnt be needed - checks if button is pushed
+//    {
+//      GPIOA->ODR ^= (1 << 5); // turn on the led
+//      my_delay_ms(500);
+//    }
+//    else
+//    {
+//      GPIOA->ODR &= ~(1 << 5); // turn off LED if button not pushed
+//    }
+
+	  if (mymillis >= 500){
+		  GPIOA->ODR ^= (1 << 5); // turn on the led
+		  mymillis = 0;
+	  }
 
     /* USER CODE END WHILE */
     /* USER CODE BEGIN 3 */
