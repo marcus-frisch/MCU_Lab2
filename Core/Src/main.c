@@ -44,6 +44,12 @@
 /* USER CODE BEGIN PV */
 uint16_t volatile ledMillis = 0; // used to check millis intervals for internal led blinking
 
+uint16_t volatile adcValue = 0; // ADC value
+
+uint16_t volatile potenInterval = 0; // millis blink interval based off potentiometer
+
+uint16_t volatile extLedMillis = 0; // used to check millis interval since last blink for external led
+
 int enableBlink = 1; // should the LEDs blink
 /* USER CODE END PV */
 
@@ -59,15 +65,29 @@ void SystemClock_Config(void);
 void TIM2_IRQHandler(void) // interrupt called when a millisecond passes
 {
   ledMillis++; // increases millisecond count for internal led blink interval
+  extLedMillis++;
   TIM2->SR &= ~(1 << 0);
 }
 
-void EXTI4_15_IRQHandler(void)
+void EXTI4_15_IRQHandler(void) // interrupt for when button is pushed
 {
-	enableBlink = !enableBlink;
+  enableBlink = !enableBlink;
 
   // Reset the pending register
   EXTI->RPR1 = 1 << 13;
+}
+
+void ADC1_COMP_IRQHandler(void)
+{
+  adcValue = ADC1->DR;
+  ADC1->ISR &= ~(1 << 2);
+  ADC1->CR |= (1 << 2);
+}
+
+// https://github.com/arduino/ArduinoCore-avr/blob/eabd762a1edcf076877b7bec28b7f99099141473/cores/arduino/WMath.cpp#L52
+int myMap(int x, int in_min, int in_max, int out_min, int out_max) // this function definition is taken from the Arduino source code
+{
+  return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
 }
 
 /* USER CODE END 0 */
@@ -102,12 +122,20 @@ int main(void)
   /* USER CODE BEGIN 2 */
   // Enable PortA clock (for led)
   RCC->IOPENR |= (1 << 0);
+
+  // enable PortB clock (for ext led2)
+  RCC->IOPENR |= (1 << 1);
+
   // Enable PortC clock (for button)
   RCC->IOPENR |= (1 << 2);
 
   // Set PA5 as output (LED)
   GPIOA->MODER |= (1 << 10);
   GPIOA->MODER &= ~(1 << 11);
+
+  // Set PB0 as output (LED)
+  GPIOB->MODER |= (1 << 0);
+  GPIOB->MODER &= ~(1 << 1);
 
   // Set PC13 as input (button)
   GPIOC->MODER &= ~(1 << 26);
@@ -139,6 +167,37 @@ int main(void)
   NVIC_SetPriority(EXTI4_15_IRQn, 0);
   NVIC_EnableIRQ(EXTI4_15_IRQn);
 
+  // set PA0 as input (potentiometer)
+  // keeping the register mode at its default state (analog mode - reset state)
+  GPIOA->MODER &= ~(1 << 0);
+  GPIOA->MODER &= ~(1 << 1);
+
+  RCC->APBENR2 |= (1 << 20); // enable ADC
+  ADC1->CFGR1 &= ~(1 << 3); // set ADC to asynchronous clock mode
+  ADC1->CFGR1 &= ~(1 << 4);
+
+  ADC1->CFGR2 &= ~(1 << 30); // set ADC to asynchronous clock mode
+  ADC1->CFGR2 &= ~(1 << 31);
+
+  ADC->CCR &= ~(1 << 18);
+  ADC->CCR &= ~(1 << 19);
+  ADC->CCR &= ~(1 << 20);
+  ADC->CCR &= ~(1 << 21);
+
+  ADC1->CHSELR |= (1 << 0); // enable pin 0 for ADC
+
+  ADC1->SMPR |= (1 << 4);   // set the clock cycle to 12.5
+  ADC1->SMPR |= (1 << 5);
+  ADC1->SMPR &= ~(1 << 6);
+
+  ADC1->IER |= (1 << 2); // enable the ADC interrupt
+  ADC1->CR |= (1 << 0);  // enable the ADC
+
+//  ADC1->ISR |= (1 << 0);
+  NVIC_SetPriority(ADC1_COMP_IRQn, 2);
+  NVIC_EnableIRQ(ADC1_COMP_IRQn);
+  ADC1->CR |= (1 << 2);
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -150,11 +209,20 @@ int main(void)
       - how to check if a bit is 0 in a register (without using '!')
     */
 
-    if (ledMillis >= 500 && (enableBlink == 1))
+    if (ledMillis >= 500 && enableBlink)
     {
       GPIOA->ODR ^= (1 << 5); // toggle the led
       ledMillis = 0;
     }
+
+    potenInterval = myMap(adcValue, 0, 4095, 100, 500); // get the interval for 2nd led controlled by the potentiometer
+
+    if (extLedMillis >= potenInterval && enableBlink)
+    {
+      GPIOB->ODR ^= (1 << 0); // toggle the led
+      extLedMillis = 0;
+    }
+
 
     /* USER CODE END WHILE */
     /* USER CODE BEGIN 3 */
